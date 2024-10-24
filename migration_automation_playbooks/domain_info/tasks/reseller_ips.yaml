@@ -1,0 +1,41 @@
+---
+- name: reseller ips
+  command: whmapi1 getresellerips user="{{ fAccountSummary.data.acct[0].user }}" --output=json
+  register: resellerIPsTemp
+
+- set_fact:
+    fResellerIPs: "{{ resellerIPsTemp.stdout | from_json }}"
+  when: resellerIPsTemp.failed == False
+
+- set_fact:
+    fFileresellerIPs: "{{ fReportDirectory }}/resellerIPs_{{ domain }}_{{ ticketID }}_{{ threadID }}.json"
+  when: fResellerIPs.metadata.result != 0 and fResellerIPs.metadata.reason == "OK"
+
+- name: stat report file reseller ips
+  stat:
+    path: "{{ fFileresellerIPs }}"
+  register: statReportFileResellerIPs
+  when: fResellerIPs.metadata.result != 0 and fResellerIPs.metadata.reason == "OK"
+
+- name: report file reseller ips
+  file:
+    path: "{{ fFileresellerIPs }}"
+    owner: root
+    group: root
+    mode: 0600
+    state: '{{ "file" if statReportFileResellerIPs.stat.exists else "touch" }}'
+  when: fResellerIPs.metadata.result != 0 and fResellerIPs.metadata.reason == "OK"
+
+- name: save file reseller ips
+  lineinfile:
+    path: "{{ fFileresellerIPs }}"
+    line: "{{ fResellerIPs | to_json }}"
+    state: present
+  when: fResellerIPs.metadata.result != 0 and fResellerIPs.metadata.reason == "OK"
+
+- name: upload report file reseller ips
+  fetch:
+    src: "{{ fFileresellerIPs }}"
+    dest: "{{ localReportDirType }}/reseller_ips.json"
+    flat: yes
+  when: fResellerIPs.metadata.result != 0 and fResellerIPs.metadata.reason == "OK"

@@ -1,0 +1,14 @@
+[Unit]
+Description=Migration Check End Service
+After=network.target
+PartOf=migration_check_end.target
+
+[Service]
+Environment=ANSIBLE_LOG_PATH=/opt/migration/logs/check_end/migration_check_end_ansible.log
+Type=simple
+ExecStart=/opt/migration/bin/pythonMigration /opt/migration/bin/migration_check_end.py
+StandardOutput=journal+console
+StandardError=inherit
+
+[Install]
+WantedBy=multi-user.target

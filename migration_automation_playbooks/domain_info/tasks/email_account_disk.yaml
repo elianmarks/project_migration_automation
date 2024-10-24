@@ -1,0 +1,34 @@
+---
+- name: email account disk
+  command: uapi --user="{{ fDomainUserData.data.userdata.user }}" Email get_main_account_disk_usage_bytes --output=json
+  register: emailAccountDiskTemp
+
+- set_fact:
+    fEmailAccountDisk: "{{ emailAccountDiskTemp.stdout | from_json }}"
+  when: emailAccountDiskTemp.failed == False
+
+- set_fact:
+    fFileEmailAccountDisk: "{{ fReportDirectory }}/emailAccountDisk_{{ domain }}_{{ ticketID }}_{{ threadID }}.json"
+  when: fEmailAccountDisk.result.status == 1
+
+- name: stat report file email account disk
+  stat:
+    path: "{{ fFileEmailAccountDisk }}"
+  register: statReportFileEmailAccountDisk
+  when: fEmailAccountDisk.result.status == 1
+
+- name: report file email account disk
+  file:
+    path: "{{ fFileEmailAccountDisk }}"
+    owner: root
+    group: root
+    mode: 0600
+    state: '{{ "file" if statReportFileEmailAccountDisk.stat.exists else "touch" }}'
+  when: fEmailAccountDisk.result.status == 1
+
+- name: save file email account disk
+  lineinfile:
+    path: "{{ fFileEmailAccountDisk }}"
+    line: "{{ fEmailAccountDisk | to_json }}"
+    state: present
+  when: fEmailAccountDisk.result.status == 1

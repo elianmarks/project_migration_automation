@@ -1,0 +1,46 @@
+---
+- name: reseller stats data
+  command: whmapi1 resellerstats user="{{ fAccountSummary.data.acct[0].user }}" --output=json
+  register: resellerStatsTemp
+
+- set_fact:
+    fResellerStats: "{{ resellerStatsTemp.stdout | from_json }}"
+  when: resellerStatsTemp.failed == False
+
+- name: fail if fResellerStats not defined
+  fail:
+    msg: "Failed because fResellerStats not defined"
+  when: fResellerStats is not defined or (fResellerStats is defined and fResellerStats.metadata.result == 0)
+
+- set_fact:
+    fFileResellerStats: "{{ fReportDirectory }}/resellerStats_{{ domain }}_{{ ticketID }}_{{ threadID }}.json"
+  when: fResellerStats.metadata.result != 0 and fResellerStats.metadata.reason == "OK"
+
+- name: stat report file reseller stats data
+  stat:
+    path: "{{ fFileResellerStats }}"
+  register: statReportFileResellerStats
+  when: fResellerStats.metadata.result != 0 and fResellerStats.metadata.reason == "OK"
+
+- name: report file reseller stats data
+  file:
+    path: "{{ fFileResellerStats }}"
+    owner: root
+    group: root
+    mode: 0600
+    state: '{{ "file" if statReportFileResellerStats.stat.exists else "touch" }}'
+  when: fResellerStats.metadata.result != 0 and fResellerStats.metadata.reason == "OK"
+
+- name: save file reseller stats data
+  lineinfile:
+    path: "{{ fFileResellerStats }}"
+    line: "{{ fResellerStats | to_json }}"
+    state: present
+  when: fResellerStats.metadata.result != 0 and fResellerStats.metadata.reason == "OK"
+
+- name: upload report file reseller stats data
+  fetch:
+    src: "{{ fFileResellerStats }}"
+    dest: "{{ localReportDirType }}/reseller_accounts_data.json"
+    flat: yes
+  when: fResellerStats.metadata.result != 0 and fResellerStats.metadata.reason == "OK"

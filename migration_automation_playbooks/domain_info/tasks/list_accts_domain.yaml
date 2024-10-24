@@ -1,0 +1,17 @@
+---
+- name: check domain available in vps or dedi
+  command: whmapi1 domainuserdata domain="{{ domain }}" --output=json
+  register: domainAvailableTemp
+  when: domain is defined
+
+- set_fact:
+    fDomainAvailable: "{{ domainAvailableTemp.stdout | from_json }}"
+  when: domainAvailableTemp.failed == False
+
+- name: check domain in destination and create available flag
+  local_action: file path="{{ localReportDirType }}/domain_available.flag" state=touch
+  when: fDomainAvailable.metadata is defined and ((fDomainAvailable.metadata.result == 0 and fDomainAvailable.data is not defined) or (fDomainAvailable.metadata.result == 1 and fDomainAvailable.data.userdata is defined and fDomainAvailable.data.userdata.keys() | length == 0))
+
+- name: check domain in destination and create unavailable flag
+  local_action: copy content="{{ fDomainAvailable.data.userdata.user }}" dest="{{ localReportDirType }}/domain_unavailable_content.flag"
+  when: fDomainAvailable.metadata is defined and fDomainAvailable.metadata.result == 1 and fDomainAvailable.data is defined and fDomainAvailable.data.userdata is defined and fDomainAvailable.data.userdata.keys() | length > 0

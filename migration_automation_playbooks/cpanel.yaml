@@ -1,0 +1,12 @@
+---
+- name: Executing migration cpanel backup
+  hosts: all
+  gather_facts: false
+  environment:
+    PATH: /root/bin:/scripts:/usr/bin:/bin:/usr/sbin:/sbin
+  vars:
+    regex_restore_failed: 'falha na restauração da conta|failed to create the account|account restore failed|account failure'
+    regex_view_transfer: '(run the following command|execute o seguinte comando):\n\n\/usr\/local\/cpanel\/bin\/view_transfer ([a-zA-Z0-9]+)\n'
+  roles:
+    - check_ssh
+    - cpanel_backup

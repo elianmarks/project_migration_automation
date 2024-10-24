@@ -1,0 +1,347 @@
+---
+- name: structure of exception errors
+  block:
+    - name: parameters set
+      set_fact:
+        fWorkDirectory: "{{ home_destination }}/.migration_{{ domain }}_{{ ticketID }}_{{ threadID }}"
+        fKeyFile: "{{ home_destination }}/.migration_{{ domain }}_{{ ticketID }}_{{ threadID }}/migration_automation_rsa"
+        fDirectorySSH: "{{ home }}/.ssh"
+        fFileAuthorizedKeys: "{{ home }}/.ssh/authorized_keys"
+        fCheckParameters: True
+      when: domain is defined and ticketID is defined and threadID is defined and home is defined and home != None and home | length > 8 and user is defined and user | length > 4 and user != 'root' and home_destination is defined and home_destination != None and home_destination | length > 8 and src_server is defined and dst_server is defined and home | regex_search('/home[0-9]?/' + user | string + '/?$') != None and home_destination | regex_search('/home[0-9]?/' + user | string + '/?$') != None
+
+    - name: account summary
+      command: whmapi1 accountsummary user="{{ user }}" --output=json
+      register: accountSummaryTemp
+      when: fCheckParameters is defined and fCheckParameters
+
+    - set_fact:
+        fAccountSummary: "{{ accountSummaryTemp.stdout | from_json }}"
+      when: accountSummaryTemp.failed == False and fCheckParameters is defined and fCheckParameters
+
+    - name: set jailshell
+      command: chsh -s /usr/local/cpanel/bin/jailshell "{{ user }}"
+      when: fAccountSummary is defined and fAccountSummary.data.acct[0].shell != "/usr/local/cpanel/bin/jailshell" and fCheckParameters is defined and fCheckParameters
+
+    - name: stat .ssh in home dir
+      stat:
+        path: "{{ fDirectorySSH }}"
+      register: statDirectorySSH
+      when: fAccountSummary is defined and fCheckParameters is defined and fCheckParameters
+
+    - name: directory .ssh in home dir
+      file:
+        path: "{{ fDirectorySSH }}"
+        owner: "{{ user }}"
+        group: "{{ user }}"
+        mode: 0700
+        state: directory
+      when: fAccountSummary is defined and fCheckParameters is defined and fCheckParameters and statDirectorySSH is defined and statDirectorySSH.stat.exists != True
+
+    - name: stat authorized_keys
+      stat:
+        path: "{{ fFileAuthorizedKeys }}"
+      register: statAuthorizedKeys
+      when: fAccountSummary is defined and fCheckParameters is defined and fCheckParameters
+
+    - name: file authorized_keys
+      file:
+        path: "{{ fFileAuthorizedKeys }}"
+        owner: "{{ user }}"
+        group: "{{ user }}"
+        mode: 0600
+        state: '{{ "file" if statAuthorizedKeys.stat.exists else "touch" }}'
+      when: fAccountSummary is defined and fCheckParameters is defined and fCheckParameters and statAuthorizedKeys is defined
+
+    - name: Check ssh port in server for src_server
+      wait_for:
+        port: "22"
+        state: "started"
+        host: "{{ src_server }}"
+        connect_timeout: "10"
+        timeout: "10"
+      ignore_errors: "yes"
+      delegate_to: "localhost"
+      register: default_ssh_port_src_server
+      when: fAccountSummary is defined and fCheckParameters is defined and fCheckParameters
+
+    - name: Check alternative ssh port in server for src_server
+      wait_for:
+        port: "22022"
+        state: "started"
+        host: "{{ src_server }}"
+        connect_timeout: "10"
+        timeout: "10"
+      ignore_errors: "yes"
+      delegate_to: "localhost"
+      register: alternative_ssh_port_src_server
+      when: fAccountSummary is defined and fCheckParameters is defined and fCheckParameters and default_ssh_port_src_server is defined and default_ssh_port_src_server.failed == True
+
+    - name: set default port ssh for src_server
+      set_fact:
+        ansible_port_src_server: "22"
+      when: fAccountSummary is defined and fCheckParameters is defined and fCheckParameters and default_ssh_port_src_server is defined and default_ssh_port_src_server.failed == False and default_ssh_port_src_server.state is defined and default_ssh_port_src_server.state == "started"
+
+    - name: set alternative port ssh for src_server
+      set_fact:
+        ansible_port_src_server: "22022"
+      when: fAccountSummary is defined and fCheckParameters is defined and fCheckParameters and alternative_ssh_port_src_server is defined and alternative_ssh_port_src_server.skipped is not defined and alternative_ssh_port_src_server.failed == False and alternative_ssh_port_src_server.state is defined and alternative_ssh_port_src_server.state == "started"
+
+    - name: check home destination
+      stat:
+        path: "{{ home_destination }}"
+      register: statHomeDestination
+      when: fAccountSummary is defined and fCheckParameters is defined and fCheckParameters
+
+    - name: check home source
+      stat:
+        path: "{{ home }}"
+      delegate_to: "{{ src_server }}"
+      vars:
+        ansible_port: "{{ ansible_port_src_server }}"
+      register: statHomeSource
+      when: fAccountSummary is defined and fCheckParameters is defined and fCheckParameters
+
+    - name: fail rsync if parameters incorrect
+      fail:
+        msg: "Parameters failed"
+      when: fCheckParameters is not defined or not fCheckParameters or statHomeSource.stat.exists != True or statHomeSource.failed != False or statHomeSource.stat.pw_name != user or statHomeDestination.stat.exists != True or statHomeDestination.failed != False or statHomeDestination.stat.pw_name != user
+
+    - name: insert rule accept for dst_server
+      iptables:
+        action: insert
+        chain: INPUT
+        source: "{{ dst_server }}"
+        jump: ACCEPT
+        comment: "Temporary rule for dst_server in migration automation"
+      delegate_to: "{{ src_server }}"
+      vars:
+        ansible_port: "{{ ansible_port_src_server }}"
+      when: fAccountSummary is defined and fCheckParameters is defined and fCheckParameters
+
+    - name: report directory
+      file:
+        path: "{{ fWorkDirectory }}"
+        state: directory
+        owner: "{{ user }}"
+        group: "{{ user }}"
+        mode: 0700
+      when: fAccountSummary is defined and fCheckParameters is defined and fCheckParameters
+
+    - name: report directory in src_server
+      file:
+        path: "{{ fWorkDirectory }}"
+        state: directory
+        owner: "{{ user }}"
+        group: "{{ user }}"
+        mode: 0700
+      delegate_to: "{{ src_server }}"
+      vars:
+        ansible_port: "{{ ansible_port_src_server }}"
+      when: fAccountSummary is defined and fCheckParameters is defined and fCheckParameters
+
+    - name: generate ssh keys
+      openssh_keypair:
+        path: "{{ fKeyFile }}"
+        owner: "{{ user }}"
+        group: "{{ user }}"
+        mode: 0600
+        force: True
+      delegate_to: "{{ src_server }}"
+      vars:
+        ansible_port: "{{ ansible_port_src_server }}"
+      register: sshKey
+      failed_when: sshKey.failed != False
+      when: fAccountSummary is defined and fCheckParameters is defined and fCheckParameters
+
+    - name: save public key in authorized_keys
+      lineinfile:
+        path: "{{ fFileAuthorizedKeys }}"
+        line: "{{ sshKey.public_key }}"
+        state: present
+      when: fAccountSummary is defined and fCheckParameters is defined and fCheckParameters and sshKey is defined and sshKey.failed == False
+
+    - name: Check ssh port in server in dst_server
+      wait_for:
+        port: "22"
+        state: "started"
+        host: "{{ dst_server }}"
+        connect_timeout: "10"
+        timeout: "10"
+      ignore_errors: "yes"
+      delegate_to: "{{ src_server }}"
+      vars:
+        ansible_port: "{{ ansible_port_src_server }}"
+      register: default_ssh_port_rsync
+      when: fAccountSummary is defined and fCheckParameters is defined and fCheckParameters
+
+    - name: Check alternative ssh port in server in dst_server
+      wait_for:
+        port: "22022"
+        state: "started"
+        host: "{{ dst_server }}"
+        connect_timeout: "10"
+        timeout: "10"
+      ignore_errors: "yes"
+      delegate_to: "{{ src_server }}"
+      vars:
+        ansible_port: "{{ ansible_port_src_server }}"
+      register: alternative_ssh_port_rsync
+      when: fAccountSummary is defined and fCheckParameters is defined and fCheckParameters and default_ssh_port_rsync is defined and default_ssh_port_rsync.failed == True
+
+    - name: set default port ssh
+      set_fact:
+        ansible_port_rsync: "22"
+      when: fAccountSummary is defined and fCheckParameters is defined and fCheckParameters and default_ssh_port_rsync is defined and default_ssh_port_rsync.failed == False and default_ssh_port_rsync.state is defined and default_ssh_port_rsync.state == "started"
+
+    - name: set alternative port ssh
+      set_fact:
+        ansible_port_rsync: "22022"
+      when: fAccountSummary is defined and fCheckParameters is defined and fCheckParameters and alternative_ssh_port_rsync is defined and alternative_ssh_port_rsync.skipped is not defined and alternative_ssh_port_rsync.failed == False and alternative_ssh_port_rsync.state is defined and alternative_ssh_port_rsync.state == "started"
+
+    - name: user
+      set_fact:
+        ansible_ssh_user: "{{ user }}"
+      when: fAccountSummary is defined and fCheckParameters is defined and fCheckParameters
+
+    - name: execute rsync push
+      synchronize:
+        mode: push
+        src:  "{{ home }}/"
+        dest: "{{ home_destination }}/"
+        recursive: yes
+        perms: no
+        rsync_timeout: 60
+        times: yes
+        rsync_opts:
+          - "--rsh=/usr/bin/ssh -S none -i {{ fKeyFile }} -o Port={{ ansible_port_rsync }} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+          - "--exclude=.security"
+          - "--exclude=.ssh"
+      register: rsync_push
+      delegate_to: "{{ src_server }}"
+      vars:
+        ansible_port: "{{ ansible_port_src_server }}"
+      failed_when: rsync_push.failed != False and rsync_push.rc != 23 and rsync_push.rc != 24
+      when: fAccountSummary is defined and fCheckParameters is defined and fCheckParameters
+
+    - name: user to root
+      set_fact:
+        ansible_ssh_user: root
+      when: fAccountSummary is defined and fCheckParameters is defined and fCheckParameters
+
+    - name: execute perms
+      command: perms
+      args:
+        chdir: "{{ home_destination }}"
+      when: fAccountSummary is defined and fCheckParameters is defined and fCheckParameters
+
+    - name: find .user.ini files
+      find:
+        paths: "{{ home }}"
+        patterns: ".user.ini"
+        file_type: file
+        hidden: yes
+        recurse: yes
+      register: filesUserIniFind
+      when: fAccountSummary is defined and fCheckParameters is defined and fCheckParameters
+
+    - name: remove files .user.ini
+      file:
+        path: "{{ item.path }}"
+        state: absent
+      with_items:
+        - "{{ filesUserIniFind.files }}"
+      when: fAccountSummary is defined and fCheckParameters is defined and fCheckParameters and filesUserIniFind.matched is defined and filesUserIniFind.matched > 0 and filesUserIniFind.files != "[]" and filesUserIniFind.files | length > 0
+
+    - name: find php.ini files
+      find:
+        paths: "{{ home }}"
+        patterns: "php.ini"
+        file_type: file
+        hidden: yes
+        recurse: yes
+      register: filesPhpIniFind
+      when: fAccountSummary is defined and fCheckParameters is defined and fCheckParameters
+
+    - name: remove files php.ini
+      file:
+        path: "{{ item.path }}"
+        state: absent
+      with_items:
+        - "{{ filesPhpIniFind.files }}"
+      when: fAccountSummary is defined and fCheckParameters is defined and fCheckParameters and filesPhpIniFind.matched is defined and filesPhpIniFind.matched > 0 and filesPhpIniFind.files != "[]" and filesPhpIniFind.files | length > 0
+
+    - name: tasks reseller rsync
+      import_tasks: reseller.yml
+      when: fAccountSummary is defined and fCheckParameters is defined and fCheckParameters and src_type is defined and src_type == "reseller" and dst_type is defined and (dst_type == "vps" or dst_type == "dedi")
+
+  rescue:
+    - name: user to root
+      set_fact:
+        ansible_ssh_user: root
+      when: fAccountSummary is defined and fCheckParameters is defined and fCheckParameters
+
+    - name: create flag failed rsync
+      local_action: file path="/home/migration/reports/{{ domain }}_{{ ticketID }}_{{ threadID }}/rsync_error.flag" state=touch
+      when: fAccountSummary is defined and fCheckParameters is defined and fCheckParameters
+
+    - name: set jailshell
+      command: chsh -s "{{ fAccountSummary.data.acct[0].shell }}" "{{ user }}"
+      when: fAccountSummary is defined and fAccountSummary.data.acct[0].shell != "/usr/local/cpanel/bin/jailshell" and fCheckParameters is defined and fCheckParameters
+
+  always:
+    - name: user to root
+      set_fact:
+        ansible_ssh_user: root
+      when: fAccountSummary is defined and fCheckParameters is defined and fCheckParameters
+
+    - name: set jailshell
+      command: chsh -s "{{ fAccountSummary.data.acct[0].shell }}" "{{ user }}"
+      when: fAccountSummary is defined and fAccountSummary.data.acct[0].shell != "/usr/local/cpanel/bin/jailshell" and fCheckParameters is defined and fCheckParameters
+
+    - name: remove migration report in home directory
+      file:
+        path: "{{ fWorkDirectory }}"
+        state: absent
+      when: fAccountSummary is defined and fCheckParameters is defined and fCheckParameters
+
+    - name: remove migration report in home directory in src_server
+      file:
+        path: "{{ fWorkDirectory }}"
+        state: absent
+      delegate_to: "{{ src_server }}"
+      vars:
+        ansible_port: "{{ ansible_port_src_server }}"
+      when: ansible_port_src_server is defined and fCheckParameters is defined and fCheckParameters
+
+    - name: remove rule accept for dst_server
+      iptables:
+        state: absent
+        chain: INPUT
+        source: "{{ dst_server }}"
+        jump: ACCEPT
+        comment: "Temporary rule for dst_server in migration automation"
+      delegate_to: "{{ src_server }}"
+      vars:
+        ansible_port: "{{ ansible_port_src_server }}"
+      when: ansible_port_src_server is defined and fCheckParameters is defined and fCheckParameters
+
+    - name: remove public key in authorized_keys
+      lineinfile:
+        path: "{{ fFileAuthorizedKeys }}"
+        line: "{{ sshKey.public_key }}"
+        state: absent
+      when: fAccountSummary is defined and fCheckParameters is defined and fCheckParameters and sshKey is defined and sshKey.failed == False
+
+    - name: get hostname of the server for temporary rule iptables
+      command: hostname
+      register: get_hostname_for_iptables
+
+    - name: remove rule accept for jigsaw server
+      iptables:
+        state: absent
+        chain: INPUT
+        source: 108.179.194.184
+        jump: ACCEPT
+        comment: "Temporary rule for ansible automation"
+      when: get_hostname_for_iptables.failed == False and get_hostname_for_iptables.stdout | regex_search('(example|example02)\.(com\.br|com\.mx|mx|com\.cl|cl|com\.co|co)') != None

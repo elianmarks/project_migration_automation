@@ -1,0 +1,164 @@
+---
+- name: structure of exception errors
+  block:
+    - name: report home packages directory
+      file:
+        path: "{{ fWorkDirectory }}/packages/"
+        state: directory
+        owner: "{{ user }}"
+        group: "{{ user }}"
+        mode: 0755
+
+    - name: report home webtemplates directory
+      file:
+        path: "{{ fWorkDirectory }}/webtemplates/"
+        state: directory
+        owner: "{{ user }}"
+        group: "{{ user }}"
+        mode: 0755
+
+    - name: stat destination packages directory
+      stat:
+        path: "/var/cpanel/packages"
+      register: statPackages
+      when: fAccountSummary is defined and fCheckParameters is defined and fCheckParameters
+
+    - name: destination packages directory
+      file:
+        path: "/var/cpanel/packages"
+        state: directory
+        owner: root
+        group: root
+        mode: 0755
+      when: fAccountSummary is defined and fCheckParameters is defined and fCheckParameters and statPackages is defined and statPackages.stat.exists != True
+
+    - name: stat destination webtemplates directory
+      stat:
+        path: "/var/cpanel/webtemplates"
+      register: statWebtemplates
+      when: fAccountSummary is defined and fCheckParameters is defined and fCheckParameters
+
+    - name: destination webtemplates directory
+      file:
+        path: "/var/cpanel/webtemplates"
+        state: directory
+        owner: root
+        group: root
+        mode: 0755
+      when: fAccountSummary is defined and fCheckParameters is defined and fCheckParameters and statWebtemplates is defined and statWebtemplates.stat.exists != True
+
+    - name: stat destination webtemplates directory
+      stat:
+        path: "/var/cpanel/webtemplates/{{ user }}"
+      register: statUserWebtemplates
+      delegate_to: "{{ src_server }}"
+      vars:
+        ansible_port: "{{ ansible_port_src_server }}"
+      when: fAccountSummary is defined and fCheckParameters is defined and fCheckParameters
+
+    - name: find user files in packages directory
+      find:
+        paths: "/var/cpanel/packages"
+        patterns: "{{ user }}_*"
+        file_type: file
+        hidden: no
+        recurse: no
+      register: filesPackagesDir
+      delegate_to: "{{ src_server }}"
+      vars:
+        ansible_port: "{{ ansible_port_src_server }}"
+      when: fAccountSummary is defined and fCheckParameters is defined and fCheckParameters
+
+    - name: user
+      set_fact:
+        ansible_ssh_user: "{{ user }}"
+      when: fAccountSummary is defined and fCheckParameters is defined and fCheckParameters
+
+    - name: execute rsync push packages
+      synchronize:
+        mode: push
+        src:  "{{ item.path }}"
+        dest: "{{ fWorkDirectory }}/packages/"
+        recursive: yes
+        perms: no
+        rsync_timeout: 60
+        times: yes
+        rsync_opts:
+          - "--rsh=/usr/bin/ssh -S none -i {{ fKeyFile }} -o Port={{ ansible_port_rsync }} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+          - "--exclude=.security"
+          - "--exclude=.ssh"
+      register: rsync_push_packages
+      with_items:
+        - "{{ filesPackagesDir.files }}"
+      delegate_to: "{{ src_server }}"
+      vars:
+        ansible_port: "{{ ansible_port_src_server }}"
+      failed_when:  rsync_push_packages.failed != False
+      when: fAccountSummary is defined and fCheckParameters is defined and fCheckParameters and filesPackagesDir.matched is defined and filesPackagesDir.matched > 0 and filesPackagesDir.files != "[]" and filesPackagesDir.files | length > 0
+
+    - name: execute rsync push webtemplates
+      synchronize:
+        mode: push
+        src:  "/var/cpanel/webtemplates/{{ user }}"
+        dest: "{{ fWorkDirectory }}/webtemplates/"
+        recursive: yes
+        perms: no
+        rsync_timeout: 60
+        times: yes
+        rsync_opts:
+          - "--rsh=/usr/bin/ssh -S none -i {{ fKeyFile }} -o Port={{ ansible_port_rsync }} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+          - "--exclude=.security"
+          - "--exclude=.ssh"
+      delegate_to: "{{ src_server }}"
+      vars:
+        ansible_port: "{{ ansible_port_src_server }}"
+      register: rsync_push_webtemplates
+      failed_when:  rsync_push_webtemplates.failed != False
+      when: fAccountSummary is defined and fCheckParameters is defined and fCheckParameters and statUserWebtemplates is defined and statUserWebtemplates.stat.exists == True
+
+    - name: user to root
+      set_fact:
+        ansible_ssh_user: root
+      when: fAccountSummary is defined and fCheckParameters is defined and fCheckParameters
+
+    - name: Move webtemplates directory
+      copy:
+        src: "{{ fWorkDirectory }}/webtemplates/{{ user }}"
+        dest: "/var/cpanel/webtemplates/"
+        remote_src: yes
+        mode: 0744
+        owner: root
+        group: root
+      when: fAccountSummary is defined and fCheckParameters is defined and fCheckParameters and statUserWebtemplates is defined and statUserWebtemplates.stat.exists == True
+
+    - name: find user files in packages directory
+      find:
+        paths: "{{ fWorkDirectory }}/packages/"
+        patterns: "{{ user }}_*"
+        file_type: file
+        hidden: no
+        recurse: no
+      register: filesReportPackagesDir
+      when: fAccountSummary is defined and fCheckParameters is defined and fCheckParameters
+
+    - name: Move packages files
+      copy:
+        src: "{{ item.path }}"
+        dest: "/var/cpanel/packages/"
+        remote_src: yes
+        mode: 0644
+        owner: root
+        group: root
+      with_items:
+        - "{{ filesReportPackagesDir.files }}"
+      when: fAccountSummary is defined and fCheckParameters is defined and fCheckParameters and filesReportPackagesDir.matched is defined and filesReportPackagesDir.matched > 0 and filesReportPackagesDir.files != "[]" and filesReportPackagesDir.files | length > 0
+
+  rescue:
+    - name: user to root
+      set_fact:
+        ansible_ssh_user: root
+      when: fAccountSummary is defined and fCheckParameters is defined and fCheckParameters
+
+    - name: create flag failed rsync
+      local_action: file path="/home/migration/reports/{{ domain }}_{{ ticketID }}_{{ threadID }}/rsync_reseller_error.flag" state=touch
+      when: fAccountSummary is defined and fCheckParameters is defined and fCheckParameters

@@ -1,0 +1,7 @@
+[Unit]
+Description=Migration Check End Target
+Requires=migration_check_end@1.service migration_check_end@2.service migration_check_end@3.service
+After=network.target
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,248 @@
+---
+- name: structure of exception errors
+  block:
+    - set_fact:
+        fTransfer: /home/transfer
+        fLocalReport: "/home/migration/reports/{{ domain }}_{{ ticketID }}_{{ threadID }}"
+        fSkipresbackup: "/etc/skipresbackup"
+      when: user is defined and domain is defined and ticketID is defined and threadID is defined
+
+    - set_fact:
+        fParamsPkgacct: "--skiphomedir"
+      when: pkgacct is defined and pkgacct and fTransfer is defined
+
+    - set_fact:
+        fParamsPkgacct: "--skiphomedir --skipacctdb"
+      when: pkgacct is defined and pkgacct and fTransfer is defined and skipacctdb is defined and skipacctdb
+
+    - set_fact:
+        fParamsPkgacct: "--skiphomedir --skipacctdb --skipdnszones"
+      when: pkgacct is defined and pkgacct and fTransfer is defined and skipacctdb is defined and skipacctdb and skipdnszones is defined and skipdnszones
+
+    - set_fact:
+        fParamsPkgacct: "--skiphomedir --skipdnszones"
+      when: pkgacct is defined and pkgacct and fTransfer is defined and skipdnszones is defined and skipdnszones
+
+    - set_fact:
+        fReportDirectory: "{{ fTransfer }}/.migration_{{ domain }}_{{ ticketID }}_{{ threadID }}_cpanel"
+      when: fTransfer is defined
+
+    - name: stat skipresbackup directory
+      stat:
+        path: "{{ fSkipresbackup }}"
+      register: statSkipresbackup
+      when: pkgacct is defined and pkgacct and fSkipresbackup is defined
+
+    - name: skipresbackup directory
+      file:
+        path: "{{ fSkipresbackup }}"
+        state: directory
+        owner: root
+        group: root
+        mode: 0700
+      when: pkgacct is defined and pkgacct and statSkipresbackup is defined and statSkipresbackup.stat.exists != True
+
+    - name: stat skipresbackup file
+      stat:
+        path: "{{ fSkipresbackup }}/{{ user }}"
+      register: statFileSkipresbackup
+      when: pkgacct is defined and pkgacct and fSkipresbackup is defined
+
+    - name: file skipresbackup
+      file:
+        path: "{{ fSkipresbackup }}/{{ user }}"
+        state: '{{ "file" if statFileSkipresbackup.stat.exists else "touch" }}'
+      when: pkgacct is defined and pkgacct and fSkipresbackup is defined
+
+    - name: stat transfer directory
+      stat:
+        path: "{{ fTransfer }}"
+      register: statTransfer
+      when: fTransfer is defined
+
+    - name: transfer directory
+      file:
+        path: "{{ fTransfer }}"
+        state: directory
+        owner: root
+        group: root
+        mode: 0700
+      when: statTransfer is defined and statTransfer.stat.exists != True
+
+    - name: report directory
+      file:
+        path: "{{ fReportDirectory }}"
+        state: directory
+        owner: root
+        group: root
+        mode: 0700
+      when: fReportDirectory is defined
+
+    - name: get disk used default account
+      command: whmapi1 accountsummary user="{{ domain_unavailable_content }}" --output=json
+      when: restore is defined and restore and fReportDirectory is defined and domain_available == False and domain_unavailable_content != False and (dst_type == "vps" or dst_type == "dedi")
+      register: diskDefaultAccountTemp
+
+    - set_fact:
+        fDiskDefaultAccount: "{{ diskDefaultAccountTemp.stdout | from_json }}"
+      when: restore is defined and restore and fReportDirectory is defined and diskDefaultAccountTemp.failed is defined and diskDefaultAccountTemp.skipped is not defined and diskDefaultAccountTemp.failed == False
+
+    - set_fact:
+        default_account_disk_check: True
+      when: restore is defined and restore and fReportDirectory is defined and diskDefaultAccountTemp.failed is defined and diskDefaultAccountTemp.skipped is not defined and fDiskDefaultAccount.metadata.result != 0 and fDiskDefaultAccount.data.acct[0].diskused | replace("M", "") | int < 1025
+
+    - set_fact:
+        default_account_disk_check: False
+      when: restore is defined and restore and fReportDirectory is defined and diskDefaultAccountTemp.failed is defined and diskDefaultAccountTemp.skipped is not defined and fDiskDefaultAccount.metadata.result != 0 and fDiskDefaultAccount.data.acct[0].diskused | replace("M", "") | int > 1025
+
+    - name: create backup default account vps or dedi
+      command: pkgacct "{{ domain_unavailable_content }}" "/home"
+      when: restore is defined and restore and fReportDirectory is defined and domain_available == False and domain_unavailable_content != False and (dst_type == "vps" or dst_type == "dedi") and default_account_disk_check is defined and default_account_disk_check == True
+      register: defaultAccountBackup
+
+    - name: remove default account vps or dedi
+      command: removeacct "{{ domain_unavailable_content }}" --force
+      register: removeDefaultAcct
+      when: restore is defined and restore and fReportDirectory is defined and defaultAccountBackup.skipped is not defined and defaultAccountBackup.failed is defined and defaultAccountBackup.failed == False and defaultAccountBackup.stdout | regex_search('pkgacct completed', ignorecase=True) != None and domain_available == False and domain_unavailable_content != False and (dst_type == "vps" or dst_type == "dedi") and default_account_disk_check is defined and default_account_disk_check == True
+      failed_when: "'account removed' not in removeDefaultAcct.stdout or removeDefaultAcct.rc != 0"
+
+    - set_fact:
+        new_domain_available: True
+        new_domain_unavailable_content: False
+      when: restore is defined and restore and fReportDirectory is defined and defaultAccountBackup.skipped is not defined and defaultAccountBackup.failed is defined and defaultAccountBackup.failed == False and defaultAccountBackup.stdout | regex_search('pkgacct completed', ignorecase=True) != None and domain_available == False and domain_unavailable_content != False and (dst_type == "vps" or dst_type == "dedi") and removeDefaultAcct is defined and 'account removed' in removeDefaultAcct.stdout and removeDefaultAcct.rc == 0 and default_account_disk_check is defined and default_account_disk_check == True
+
+    - name: generate cpanel backup
+      command: pkgacct "{{ fParamsPkgacct }}" "{{ user }}" "{{ fReportDirectory }}"
+      when: pkgacct is defined and pkgacct and fReportDirectory is defined
+      register: cpanelBackup
+
+    - name: upload cpanel backup
+      fetch:
+        src: "{{ fReportDirectory }}/cpmove-{{ user }}.tar.gz"
+        dest: "{{ fLocalReport }}/cpmove-{{ user }}.tar.gz"
+        flat: yes
+      register: cpanelUpload
+      when: pkgacct is defined and pkgacct and cpanelBackup.failed is defined and cpanelBackup.failed == False and cpanelBackup.stdout | regex_search('pkgacct completed', ignorecase=True) != None
+
+    - name: copy cpanel backup to restore
+      copy:
+        src: "{{ fLocalReport }}/cpmove-{{ user }}.tar.gz"
+        dest: "{{ fReportDirectory }}/cpmove-{{ user }}.tar.gz"
+        owner: root
+        group: root
+        mode: '0700'
+      register: copyRestore
+      when: restore is defined and restore and fReportDirectory is defined
+
+    - name: get remote checksum
+      stat:
+        path: "{{ fReportDirectory }}/cpmove-{{ user }}.tar.gz"
+        get_checksum: yes
+      register: remoteChecksum
+      when: (restore is defined and restore and copyRestore.failed is defined and copyRestore.failed == False) or (pkgacct is defined and pkgacct and cpanelBackup.failed is defined and cpanelBackup.failed == False and cpanelBackup.rc == 0 and cpanelBackup.stdout | regex_search('pkgacct completed', ignorecase=True) != None)
+
+    - name: get local checksum
+      local_action: stat path="{{ fLocalReport }}/cpmove-{{ user }}.tar.gz" get_checksum=yes
+      register: localChecksum
+      when: (restore is defined and restore and copyRestore.failed is defined and copyRestore.failed == False) or (pkgacct is defined and pkgacct and cpanelBackup.failed is defined and cpanelBackup.failed == False and cpanelBackup.rc == 0 and cpanelBackup.stdout | regex_search('pkgacct completed', ignorecase=True) != None)
+
+    - name: check error in copy and create flag
+      file:
+        path: "{{ fReportDirectory }}/copy_error.flag"
+        state: touch
+      when: remoteChecksum.stat.exists == False or localChecksum.stat.exists == False or remoteChecksum.stat.checksum != localChecksum.stat.checksum
+
+    - name: check stat copy_error flag
+      stat:
+        path: "{{ fReportDirectory }}/copy_error.flag"
+      register: statCopyError
+
+    - name: upload copy_error if exists
+      fetch:
+        src: "{{ fReportDirectory }}/copy_error.flag"
+        dest: "{{ fLocalReport }}//copy_error.flag"
+      when: statCopyError.stat.exists == True
+
+    - name: restore cpanel backup
+      command: restorepkg --allow_reseller "{{ fReportDirectory }}/cpmove-{{ user }}.tar.gz"
+      register: cpanelRestore
+      failed_when: cpanelRestore.rc != 0 and cpanelRestore.rc != 255
+      when: fTransfer is defined and statCopyError.stat.exists != True and restore is defined and restore and copyRestore.failed is defined and copyRestore.failed == False and ((domain_available == True and domain_unavailable_content == False) or (new_domain_unavailable_content is defined and new_domain_unavailable_content == False and new_domain_available is defined and new_domain_available == True)) and user_available == True
+
+    - name: check error in restore account
+      local_action: file path="{{ fLocalReport }}/restore_error.flag" state=touch
+      when: (cpanelRestore.skipped is defined and cpanelRestore.skipped == True and restore is defined and restore) or (restore is defined and restore and cpanelRestore.stdout | regex_search(regex_restore_failed, ignorecase=True) != None)
+
+    - name: fail if check not defined
+      fail:
+        msg: "Failed because check restore not defined"
+      when: (cpanelRestore.skipped is defined and cpanelRestore.skipped == True and restore is defined and restore) or (restore is defined and restore and cpanelRestore.stdout | regex_search(regex_restore_failed, ignorecase=True) != None)
+
+    - name: set facter for view_transfer
+      set_fact:
+        fViewTransferCommand: "{{ cpanelRestore.stdout | regex_search(regex_view_transfer) | replace('run the following command:\n\n', '') | replace('execute o seguinte comando:\n\n', '') | replace('\n', '') }}"
+      ignore_errors: yes
+      when: fTransfer is defined and restore is defined and restore
+
+    - name: save view transfer command
+      local_action: copy content="{{ fViewTransferCommand }}" dest="{{ fLocalReport }}/view_transfer_command" owner=migration group=migration mode=0600
+      when: fTransfer is defined and restore is defined and restore
+
+    - name: Pause of 60 seconds when restore enqueued
+      pause: seconds=60
+      when: restore is defined and restore and cpanelRestore.stdout | regex_search('You have successfully enqueued this account') != None
+
+    - name: check user after restore
+      command: whmapi1 listaccts search="^{{ user }}$" searchtype=user --output=json
+      register: checkUserRestoreTemp
+      when: fTransfer is defined and restore is defined and restore
+
+    - set_fact:
+        fCheckUserRestore: "{{ checkUserRestoreTemp.stdout | from_json }}"
+      when: fTransfer is defined and restore is defined and restore and checkUserRestoreTemp.failed == False
+
+    - name: fail if user not found in listaccts
+      fail:
+        msg: "Failed because user not found in listaccts"
+      when: restore is defined and restore and (fCheckUserRestore is not defined or (fCheckUserRestore is defined and fCheckUserRestore.data is defined and (fCheckUserRestore.metadata.result != 1 or fCheckUserRestore.data.acct[0].domain != domain)))
+
+    - name: tasks get user data
+      import_tasks: user_get_data.yaml
+      when: fTransfer is defined and restore is defined and restore
+
+    - name: change package to turbo plan
+      command: whmapi1 changepackage user="{{ user }}" pkg=Turbo
+      when: fTransfer is defined and dst_type is defined and dst_type == "turbo" and restore is defined and restore
+
+    - name: change package to default
+      command: whmapi1 changepackage user="{{ user }}" pkg=default
+      when: fTransfer is defined and dst_type is defined and (dst_type == "vps" or dst_type == "dedi") and src_type is defined and (src_type == "shared" or src_type == "turbo") and restore is defined and restore
+
+    - name: change owner to root
+      command: whmapi1 modifyacct owner="root" user="{{ user }}"
+      when: fTransfer is defined and dst_type is defined and (dst_type == "vps" or dst_type == "dedi") and src_type is defined and src_type == "reseller" and restore is defined and restore
+
+  rescue:
+    - name: check error in restore account
+      local_action: file path="{{ fLocalReport }}/restore_error.flag" state=touch
+      when: restore is defined and restore
+
+  always:
+    - name: remove migration home directory
+      file:
+        path: "{{ fReportDirectory }}"
+        state: absent
+      when: fReportDirectory is defined
+
+    - name: get hostname of the server for temporary rule iptables
+      command: hostname
+      register: get_hostname_for_iptables
+
+    - name: remove rule accept for jigsaw server
+      iptables:
+        state: absent
+        chain: INPUT
+        source: 1.1.1.1
+        jump: ACCEPT
+        comment: "Temporary rule for ansible automation"
+      when: get_hostname_for_iptables.failed == False and get_hostname_for_iptables.stdout | regex_search('(example|example02)\.(com\.br|com\.mx|mx|com\.cl|cl|com\.co|co)') != None

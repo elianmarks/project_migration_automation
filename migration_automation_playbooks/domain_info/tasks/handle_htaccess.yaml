@@ -1,0 +1,22 @@
+---
+- set_fact:
+    values_regex: "suPHP_ConfigPath,AddType.*x-httpd-php,AddHandler.*x-httpd-php,.*Use.*as default"
+
+- name: find htaccess
+  find:
+    paths: "{{ fDomainUserData.data.userdata.homedir }}"
+    patterns: ".htaccess"
+    file_type: file
+    hidden: yes
+    recurse: yes
+  register: htaccessFind
+
+- name: clean htaccess
+  lineinfile:
+    path: "{{ item[0].path }}"
+    regexp: "(?i).*{{ item[1] }}.*"
+    state: absent
+  with_nested:
+    - "{{ htaccessFind.files }}"
+    - "{{ values_regex.split(',') }}"
+  when: htaccessFind.matched is defined and htaccessFind.matched > 0 and htaccessFind.files != "[]" and htaccessFind.files | length > 0

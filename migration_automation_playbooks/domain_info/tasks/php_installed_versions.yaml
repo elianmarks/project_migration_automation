@@ -1,0 +1,34 @@
+---
+- name: php installed versions
+  command: whmapi1 php_get_installed_versions --output=json
+  register: phpInstalledVersionsTemp
+
+- set_fact:
+    fPHPInstalledVersions: "{{ phpInstalledVersionsTemp.stdout | from_json }}"
+  when: phpInstalledVersionsTemp.failed == False
+
+- set_fact:
+    fFilePHPInstalledVersions: "{{ fReportDirectory }}/phpInstalledVersions_{{ domain }}_{{ ticketID }}_{{ threadID }}.json"
+  when: fPHPInstalledVersions.metadata.result != 0
+
+- name: stat report file php installed versions
+  stat:
+    path: "{{ fFilePHPInstalledVersions }}"
+  register: statReportFilephpInstalledVersions
+  when: fPHPInstalledVersions.metadata.result != 0
+
+- name: report file php installed versions
+  file:
+    path: "{{ fFilePHPInstalledVersions }}"
+    owner: root
+    group: root
+    mode: 0600
+    state: '{{ "file" if statReportFilephpInstalledVersions.stat.exists else "touch" }}'
+  when: fPHPInstalledVersions.metadata.result != 0
+
+- name: save file php installed versions
+  lineinfile:
+    path: "{{ fFilePHPInstalledVersions }}"
+    line: "{{ fPHPInstalledVersions | to_json }}"
+    state: present
+  when: fPHPInstalledVersions.metadata.result != 0

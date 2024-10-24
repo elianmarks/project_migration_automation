@@ -1,0 +1,34 @@
+---
+- name: list domains
+  command: uapi --user="{{ fDomainUserData.data.userdata.user }}" DomainInfo list_domains --output=json
+  register: listDomainsTemp
+
+- set_fact:
+    fListDomains: "{{ listDomainsTemp.stdout | from_json }}"
+  when: listDomainsTemp.failed == False
+
+- set_fact:
+    fFileListDomains: "{{ fReportDirectory }}/listDomains_{{ domain }}_{{ ticketID }}_{{ threadID }}.json"
+  when: fListDomains.result.status == 1
+
+- name: stat report file list domains
+  stat:
+    path: "{{ fFileListDomains }}"
+  register: statReportFileListDomains
+  when: fListDomains.result.status == 1
+
+- name: report file list domains
+  file:
+    path: "{{ fFileListDomains }}"
+    owner: root
+    group: root
+    mode: 0600
+    state: '{{ "file" if statReportFileListDomains.stat.exists else "touch" }}'
+  when: fListDomains.result.status == 1
+
+- name: save file list domains
+  lineinfile:
+    path: "{{ fFileListDomains }}"
+    line: "{{ fListDomains | to_json }}"
+    state: present
+  when: fListDomains.result.status == 1

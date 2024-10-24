@@ -1,0 +1,39 @@
+---
+- name: domain user data
+  command: whmapi1 domainuserdata domain="{{ domain }}" --output=json
+  register: domainUserDataTemp
+
+- set_fact:
+    fDomainUserData: "{{ domainUserDataTemp.stdout | from_json }}"
+  when: domainUserDataTemp.failed == False
+
+- name: fail if fDomainUserData not defined
+  fail:
+    msg: "Failed because fDomainUserData not defined"
+  when: fDomainUserData is not defined or (fDomainUserData is defined and fDomainUserData.metadata.result == 0)
+
+- set_fact:
+    fFileDomainUserData: "{{ fReportDirectory }}/domainUserData_{{ domain }}_{{ ticketID }}_{{ threadID }}.json"
+  when: fDomainUserData.metadata.result != 0
+
+- name: stat report file domain user data
+  stat:
+    path: "{{ fFileDomainUserData }}"
+  register: statReportFileDomainUserData
+  when: fDomainUserData.metadata.result != 0
+
+- name: report file domain user data
+  file:
+    path: "{{ fFileDomainUserData }}"
+    owner: root
+    group: root
+    mode: 0600
+    state: '{{ "file" if statReportFileDomainUserData.stat.exists else "touch" }}'
+  when: fDomainUserData.metadata.result != 0
+
+- name: save file domain user data
+  lineinfile:
+    path: "{{ fFileDomainUserData }}"
+    line: "{{ fDomainUserData | to_json }}"
+    state: present
+  when: fDomainUserData.metadata.result != 0

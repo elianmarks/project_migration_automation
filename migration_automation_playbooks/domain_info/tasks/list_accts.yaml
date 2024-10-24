@@ -1,0 +1,41 @@
+---
+- name: list accts
+  command: whmapi1 listaccts --output=json
+  register: listAcctsTemp
+
+- set_fact:
+    fListAccts: "{{ listAcctsTemp.stdout | from_json }}"
+  when: listAcctsTemp.failed == False
+
+- set_fact:
+    fFileListAccts: "{{ fReportDirectory }}/listAccts_{{ domain }}_{{ ticketID }}_{{ threadID }}.json"
+  when: fListAccts.metadata.result != 0 and fListAccts.metadata.reason == "OK"
+
+- name: stat report file list accts
+  stat:
+    path: "{{ fFileListAccts }}"
+  register: statReportFilelistAccts
+  when: fListAccts.metadata.result != 0 and fListAccts.metadata.reason == "OK"
+
+- name: report file list accts
+  file:
+    path: "{{ fFileListAccts }}"
+    owner: root
+    group: root
+    mode: 0600
+    state: '{{ "file" if statReportFilelistAccts.stat.exists else "touch" }}'
+  when: fListAccts.metadata.result != 0 and fListAccts.metadata.reason == "OK"
+
+- name: save file list accts
+  lineinfile:
+    path: "{{ fFileListAccts }}"
+    line: "{{ fListAccts | to_json }}"
+    state: present
+  when: fListAccts.metadata.result != 0 and fListAccts.metadata.reason == "OK"
+
+- name: upload report file list accts
+  fetch:
+    src: "{{ fFileListAccts }}"
+    dest: "{{ localReportDirType }}/list_accts.json"
+    flat: yes
+  when: fListAccts.metadata.result != 0 and fListAccts.metadata.reason == "OK"

@@ -1,0 +1,234 @@
+---
+- name: structure of exception errors
+  block:
+    - name: fetch dns zones
+      command: cpapi2 --user="{{ user }}" ZoneEdit fetchzones --output=json
+      register: dnsZonesTemp
+      when: user is defined and type is defined and (source_hostname is defined or destination_ip is defined)
+
+    - name: get domains data
+      command: whmapi1 accountsummary user="{{ user }}" --output=json
+      register: accountSummaryTemp
+      when: user is defined and type is defined and (source_hostname is defined or destination_ip is defined)
+
+    - name: get list domains
+      command: uapi --user="{{ user }}" DomainInfo list_domains --output=json
+      register: listDomainsTemp
+      when: user is defined and type is defined and (source_hostname is defined or destination_ip is defined)
+
+    - name: get ns server in destination server
+      command: cpapi2 --user="{{ user }}" ZoneEdit fetchzone_records domain="{{ domain }}" type=NS --output=json
+      register: nsZonesGetTemp
+      when: user is defined and type is defined and ticketID is defined and threadID is defined and domain is defined and type == "destination_end"
+
+    - set_fact:
+        localReportDirType: "/home/migration/reports/{{ domain }}_{{ ticketID }}_{{ threadID }}/{{ type }}"
+      when: user is defined and type is defined and ticketID is defined and threadID is defined and domain is defined and (type == "destination_end" or type == "source")
+
+    - set_fact:
+        securityReportDir: "/home/{{ user }}/.security"
+      when: user is defined and type is defined and ticketID is defined and threadID is defined and domain is defined and type == "source"
+
+    - set_fact:
+        securityCheckDir: "{{ securityReportDir }}/{{ domain }}_{{ ticketID }}_{{ threadID }}"
+      when: securityReportDir is defined
+
+    - set_fact:
+        fnsZones: "{{ nsZonesGetTemp.stdout | from_json }}"
+      when: user is defined and type is defined and ticketID is defined and threadID is defined and domain is defined and type == "destination_end" and nsZonesGetTemp.failed == False
+
+    - set_fact:
+        fListDomains: "{{ listDomainsTemp.stdout | from_json }}"
+      when: user is defined and type is defined and (source_hostname is defined or destination_ip is defined) and listDomainsTemp.failed == False
+
+    - name: get hostname of the server
+      command: hostname
+      register: get_hostname
+
+    - set_fact:
+        fHostname: "{{ get_hostname.stdout }}"
+      when: get_hostname.failed == False
+
+    - set_fact:
+        fAccountSummary: "{{ accountSummaryTemp.stdout | from_json }}"
+      when: user is defined and type is defined and (source_hostname is defined or destination_ip is defined) and accountSummaryTemp.failed == False
+
+    - set_fact:
+        fDnsZones: "{{ dnsZonesTemp.stdout | from_json }}"
+      when: user is defined and type is defined and (source_hostname is defined or destination_ip is defined) and dnsZonesTemp.failed == False
+
+    - set_fact:
+        fListZones: "{{ fDnsZones.cpanelresult.data[0].zones | list }}"
+      when: fDnsZones is defined and fDnsZones.cpanelresult.event is defined and fDnsZones.cpanelresult.event.result == 1
+
+    - name: save file with ns servers
+      local_action: lineinfile line="ns={{ item.nsdname }}" path="{{ localReportDirType }}/nsZones" create=yes state=present owner=migration group=migration mode=0600
+      with_items:
+        - "{{ fnsZones.cpanelresult.data }}"
+      when: localReportDirType is defined and fnsZones is defined and fnsZones.cpanelresult is defined and fnsZones.cpanelresult.event.result == 1
+
+    - name: stat dns zone
+      stat:
+        path: "/var/named/{{ item }}.db"
+      with_items:
+        - "{{ fListZones }}"
+      register: statListZones
+      when: fListZones is defined and fDnsZones is defined and fDnsZones.cpanelresult.event is defined and fDnsZones.cpanelresult.event.result == 1
+
+    - name: stat security dir
+      stat:
+        path: "{{ securityReportDir }}"
+      register: statSecurityDir
+      when: securityReportDir is defined
+
+    - name: stat security check dir
+      stat:
+        path: "{{ securityCheckDir }}"
+      register: statSecurityCheck
+      when: securityCheckDir is defined
+
+    - name: directory security
+      file:
+        path: "{{ securityCheckDir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: 0700
+      when: securityReportDir is defined and statSecurityDir is defined and statSecurityDir.stat.exists != True
+
+    - name: directory security check dir
+      file:
+        path: "{{ securityCheckDir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: 0700
+      when: securityCheckDir is defined and statSecurityCheck is defined and statSecurityCheck.stat.exists != True
+
+    - name: add vps or dedi ip in spf in source server
+      replace:
+        path: "{{ item[1].stat.path }}"
+        regexp: "(?i)v=spf1"
+        replace: "v=spf1 +ip4:{{ item[0] }}"
+      with_nested:
+        - "{{ destination_ip_mail }}"
+        - "{{ statListZones.results }}"
+      when: destination_ip_mail is defined and dst_type is defined and (dst_type == "vps" or dst_type == "dedi") and type is defined and type == "source" and fHostname is defined and fDnsZones.cpanelresult.event is defined and fDnsZones.cpanelresult.event.result == 1 and item[1].stat.exists == True
+
+    - name: replace source hostname in destination server
+      replace:
+        path: "{{ item.stat.path }}"
+        regexp: "(?i){{ source_hostname }}"
+        replace: "{{ fHostname }}"
+      with_items:
+        - "{{ statListZones.results }}"
+      when: type is defined and type == "destination_end" and fHostname is defined and fDnsZones.cpanelresult.event is defined and fDnsZones.cpanelresult.event.result == 1 and item.stat.exists == True
+
+    - name: replace destination ip in source server
+      replace:
+        path: "{{ item.stat.path }}"
+        regexp: "{{ fAccountSummary.data.acct[0].ip }}"
+        replace: "{{ destination_ip }}"
+      with_items:
+        - "{{ statListZones.results }}"
+      when: type is defined and type == "source" and fAccountSummary is defined and fAccountSummary.metadata.result != 0 and fDnsZones is defined and fDnsZones.cpanelresult.event is defined and fDnsZones.cpanelresult.event.result == 1 and item.stat.exists == True
+
+    - name: remove addon domains in localdomain in source server
+      lineinfile:
+        path: /etc/localdomains
+        state: absent
+        regexp: "^{{ item }}$"
+      with_items:
+        - "{{ fListDomains.result.data.addon_domains }}"
+      when: type is defined and type == "source" and fListDomains.result.status == 1 and item != "[]" and item | length > 0
+
+    - name: add addon domains in remotedomains in source server
+      lineinfile:
+        path: /etc/remotedomains
+        line: present
+        regexp: "{{ item }}"
+      with_items:
+        - "{{ fListDomains.result.data.addon_domains }}"
+      when: type is defined and type == "source" and fListDomains.result.status == 1 and item != "[]" and item | length > 0
+
+    - name: remove parked domains in localdomain in source server
+      lineinfile:
+        path: /etc/localdomains
+        state: absent
+        regexp: "^{{ item }}$"
+      with_items:
+        - "{{ fListDomains.result.data.parked_domains }}"
+      when: type is defined and type == "source" and fListDomains.result.status == 1 and item != "[]" and item | length > 0
+
+    - name: add parked domains in remotedomains in source server
+      lineinfile:
+        path: /etc/remotedomains
+        state: present
+        line: "{{ item }}"
+      with_items:
+        - "{{ fListDomains.result.data.parked_domains }}"
+      when: type is defined and type == "source" and fListDomains.result.status == 1 and item != "[]" and item | length > 0
+
+    - name: remove sub domains in localdomain in source server
+      lineinfile:
+        path: /etc/localdomains
+        state: absent
+        regexp: "^{{ item }}$"
+      with_items:
+        - "{{ fListDomains.result.data.sub_domains }}"
+      when: type is defined and type == "source" and fListDomains.result.status == 1 and item != "[]" and item | length > 0
+
+    - name: add sub domains in remotedomains in source server
+      lineinfile:
+        path: /etc/remotedomains
+        state: present
+        line: "{{ item }}"
+      with_items:
+        - "{{ fListDomains.result.data.sub_domains }}"
+      when: type is defined and type == "source" and fListDomains.result.status == 1 and item != "[]" and item | length > 0
+
+    - name: remove main domain in localdomain in source server
+      lineinfile:
+        path: /etc/localdomains
+        state: absent
+        regexp: "^{{ fListDomains.result.data.main_domain }}$"
+      when: type is defined and type == "source" and fListDomains.result.status == 1 and fListDomains.result.data.main_domain != ""
+
+    - name: add main domain in remotedomains in source server
+      lineinfile:
+        path: /etc/remotedomains
+        state: present
+        line: "{{ fListDomains.result.data.main_domain }}"
+      when: type is defined and type == "source" and fListDomains.result.status == 1 and fListDomains.result.data.main_domain != ""
+
+    - name: save suspend uuid in file suspend
+      copy:
+        content: "{{ saveSuspendUUID }}"
+        dest: "{{ securityCheckDir }}/suspend"
+        owner: root
+        group: root
+        mode: 0700
+      when: securityCheckDir is defined and saveSuspendUUID is defined
+
+    - name: save suspend uuid in ansible server
+      local_action: copy content="{{ saveSuspendUUID }}" dest="{{ localReportDirType }}/suspend_uuid" owner=migration group=migration mode=0400
+      when: securityCheckDir is defined and saveSuspendUUID is defined and localReportDirType is defined
+
+    - name: rndc reload
+      command: rndc reload
+      when: user is defined and type is defined and (source_hostname is defined or destination_ip is defined)
+
+  always:
+    - name: get hostname of the server for temporary rule iptables
+      command: hostname
+      register: get_hostname_for_iptables
+
+    - name: remove rule accept for jigsaw server
+      iptables:
+        state: absent
+        chain: INPUT
+        source: 108.179.194.184
+        jump: ACCEPT
+        comment: "Temporary rule for ansible automation"
+      when: get_hostname_for_iptables.failed == False and get_hostname_for_iptables.stdout | regex_search('(example|example02)\.(com\.br|com\.mx|mx|com\.cl|cl|com\.co|co)') != None
+

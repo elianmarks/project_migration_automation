@@ -1,0 +1,88 @@
+---
+- name: structure of exception errors
+  block:
+    - name: domain user data for handle php
+      command: whmapi1 domainuserdata domain="{{ domain }}" --output=json
+      register: domainHandlePHPTemp
+      when: type is defined and (type == "phpini" or type == "phpversion") and domain is defined and user is defined
+
+    - set_fact:
+        fHtaccessPHP: "# php -- BEGIN cPanel-generated handler, do not edit\n# Set the \"ea-php{{ version_php }}\" package as the default \"PHP\" programming language.\n<IfModule mime_module>\n   AddHandler application/x-httpd-ea-php{{ version_php }} .php .php{{ version_php[0] }} .phtml\n</IfModule>\n# php -- END cPanel-generated handler, do not edit"
+      when: type is defined and type == "phpversion" and domain is defined and user is defined and version_php is defined
+
+    - set_fact:
+        fDomainHandlePHP: "{{ domainHandlePHPTemp.stdout | from_json }}"
+      when: type is defined and (type == "phpini" or type == "phpversion") and domainHandlePHPTemp.failed == False
+
+    - set_fact:
+        fUserIniPHP: "{{ fDomainHandlePHP.data.userdata.documentroot }}/.user.ini"
+      when: type is defined and type == "phpini" and fDomainHandlePHP.metadata.result != 0 and fDomainHandlePHP.data.userdata.user == user
+
+    - set_fact:
+        fHtaccessPath: "{{ fDomainHandlePHP.data.userdata.documentroot }}/.htaccess"
+      when: type is defined and type == "phpversion" and fDomainHandlePHP.metadata.result != 0 and fDomainHandlePHP.data.userdata.user == user
+
+    - name: stat htaccess file in docroot
+      stat:
+        path: "{{ fHtaccessPath }}"
+      register: statHtaccessPHP
+      when: fHtaccessPath is defined and type is defined and type == "phpversion" and fDomainHandlePHP.metadata.result != 0 and fDomainHandlePHP.data.userdata.user == user
+
+    - name: file htaccess in docroot
+      file:
+        path: "{{ fHtaccessPath }}"
+        owner: "{{ user }}"
+        group: "{{ user }}"
+        mode: 0644
+        state: '{{ "file" if statHtaccessPHP.stat.exists else "touch" }}'
+      when: fHtaccessPath is defined and type is defined and type == "phpversion" and fDomainHandlePHP.metadata.result != 0 and fDomainHandlePHP.data.userdata.user == user
+
+    - name: set values in htaccess
+      lineinfile:
+        path: "{{ fHtaccessPath }}"
+        line: "{{ item }}"
+        state: present
+      with_items: "{{ fHtaccessPHP }}"
+      when: fHtaccessPath is defined and fHtaccessPHP is defined and type is defined and type == "phpversion" and domain is defined and user is defined and version_php is defined
+
+    - name: set php version in domain
+      command: uapi --user="{{ user }}" LangPHP php_set_vhost_versions version=ea-php"{{ version_php }}" vhost="{{ domain }}"
+      when: type is defined and type == "phpversion" and domain is defined and user is defined and version_php is defined
+
+    - name: stat user.ini file in docroot
+      stat:
+        path: "{{ fUserIniPHP }}"
+      register: statUserIniPHP
+      when: type is defined and type == "phpini" and fDomainHandlePHP.metadata.result != 0 and fDomainHandlePHP.data.userdata.user == user
+
+    - name: file user.ini in docroot
+      file:
+        path: "{{ fUserIniPHP }}"
+        owner: "{{ user }}"
+        group: "{{ user }}"
+        mode: 0644
+        state: '{{ "file" if statUserIniPHP.stat.exists else "touch" }}'
+      when: type is defined and type == "phpini" and fDomainHandlePHP.metadata.result != 0 and fDomainHandlePHP.data.userdata.user == user
+
+    - name: set value in variable php
+      lineinfile:
+        path: "{{ fUserIniPHP }}"
+        regexp: "^(?i){{ variable_php }}"
+        insertafter: "^#{{ variable_php }}"
+        line: "{{ variable_php }} = {{ value_php }}"
+        state: present
+      when: type is defined and type == "phpini" and fDomainHandlePHP.metadata.result != 0 and fDomainHandlePHP.data.userdata.user == user
+
+  always:
+    - name: get hostname of the server for temporary rule iptables
+      command: hostname
+      register: get_hostname_for_iptables
+
+    - name: remove rule accept for jigsaw server
+      iptables:
+        state: absent
+        chain: INPUT
+        source: 108.179.194.184
+        jump: ACCEPT
+        comment: "Temporary rule for ansible automation"
+      when: get_hostname_for_iptables.failed == False and get_hostname_for_iptables.stdout | regex_search('(example|example02)\.(com\.br|com\.mx|mx|com\.cl|cl|com\.co|co)') != None

@@ -1,0 +1,7 @@
+[Unit]
+Description=Migration Handle DNS Target
+Requires=migration_handle_dns@1.service migration_handle_dns@2.service migration_handle_dns@3.service
+After=network.target
+
+[Install]
+WantedBy=multi-user.target

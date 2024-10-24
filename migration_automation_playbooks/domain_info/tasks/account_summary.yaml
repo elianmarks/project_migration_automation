@@ -1,0 +1,43 @@
+---
+- name: account summary
+  command: whmapi1 accountsummary user="{{ fDomainUserData.data.userdata.user }}" --output=json
+  register: accountSummaryTemp
+
+- set_fact:
+    fAccountSummary: "{{ accountSummaryTemp.stdout | from_json }}"
+  when: accountSummaryTemp.failed == False
+
+- name: create flag account suspended
+  local_action: file path="{{ localReportDir }}/account_suspended.flag" state=touch
+  when: fAccountSummary is defined and fAccountSummary.data.acct[0].suspended == 1
+
+- name: fail if fAccountSummary not defined or account suspended
+  fail:
+    msg: "Failed because account is suspended"
+  when: fAccountSummary is not defined or (fAccountSummary is defined and (fAccountSummary.data.acct[0].suspended == 1 or fAccountSummary.metadata.result == 0))
+
+- set_fact:
+    fFileAccountSummary: "{{ fReportDirectory }}/accountSummary_{{ domain }}_{{ ticketID }}_{{ threadID }}.json"
+  when: fAccountSummary.metadata.result != 0
+
+- name: stat report file account summary
+  stat:
+    path: "{{ fFileAccountSummary }}"
+  register: statReportFileAccountSummary
+  when: fAccountSummary.metadata.result != 0
+
+- name: report file account summary
+  file:
+    path: "{{ fFileAccountSummary }}"
+    owner: root
+    group: root
+    mode: 0600
+    state: '{{ "file" if statReportFileAccountSummary.stat.exists else "touch" }}'
+  when: fAccountSummary.metadata.result != 0
+
+- name: save file account summary
+  lineinfile:
+    path: "{{ fFileAccountSummary }}"
+    line: "{{ fAccountSummary | to_json }}"
+    state: present
+  when: fAccountSummary.metadata.result != 0

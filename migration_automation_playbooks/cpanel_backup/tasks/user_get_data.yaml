@@ -1,0 +1,46 @@
+---
+- name: get user data
+  command: whmapi1 domainuserdata domain="{{ domain }}" --output=json
+  register: userGetDataTemp
+
+- set_fact:
+    fUserGetData: "{{ userGetDataTemp.stdout | from_json }}"
+  when: userGetDataTemp.failed == False
+
+- name: fail if fUserGetData not defined
+  fail:
+    msg: "Failed because fUserGetData not defined"
+  when: fUserGetData is not defined or (fUserGetData is defined and fUserGetData.metadata.result == 0)
+
+- set_fact:
+    fFileUserGetData: "{{ fReportDirectory }}/user_get_data_destination_{{ domain }}_{{ ticketID }}_{{ threadID }}.json"
+  when: fUserGetData.metadata.result != 0
+
+- name: stat report file get user data
+  stat:
+    path: "{{ fFileUserGetData }}"
+  register: statReportFileUserGetData
+  when: fUserGetData.metadata.result != 0
+
+- name: report file get user data
+  file:
+    path: "{{ fFileUserGetData }}"
+    owner: root
+    group: root
+    mode: 0600
+    state: '{{ "file" if statReportFileUserGetData.stat.exists else "touch" }}'
+  when: fUserGetData.metadata.result != 0
+
+- name: save file get user data
+  lineinfile:
+    path: "{{ fFileUserGetData }}"
+    line: "{{ fUserGetData | to_json }}"
+    state: present
+  when: fUserGetData.metadata.result != 0
+
+- name: upload report file domain user data
+  fetch:
+    src: "{{ fFileUserGetData }}"
+    dest: "{{ fLocalReport }}/user_get_data_destination.json"
+    flat: yes
+  when: fUserGetData.metadata.result != 0

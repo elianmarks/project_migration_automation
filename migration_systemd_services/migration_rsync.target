@@ -1,0 +1,7 @@
+[Unit]
+Description=Migration Rsync Push Target
+Requires=migration_rsync@1.service migration_rsync@2.service migration_rsync@3.service migration_rsync@4.service migration_rsync@5.service migration_rsync@6.service
+After=network.target
+
+[Install]
+WantedBy=multi-user.target

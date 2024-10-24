@@ -1,0 +1,39 @@
+---
+- name: domains data
+  command: uapi --user="{{ fDomainUserData.data.userdata.user }}" DomainInfo domains_data format=hash return_https_redirect_status=1 --output=json
+  register: domainsDataTemp
+
+- set_fact:
+    fDomainsData: "{{ domainsDataTemp.stdout | from_json }}"
+  when: domainsDataTemp.failed == False
+
+- name: fail if fDomainsData not defined
+  fail:
+    msg: "Failed because fDomainsData not defined"
+  when: fDomainsData is not defined or (fDomainsData is defined and fDomainsData.result.status != 1)
+
+- set_fact:
+    fFileDomainsData: "{{ fReportDirectory }}/domainsData_{{ domain }}_{{ ticketID }}_{{ threadID }}.json"
+  when: fDomainsData.result.status == 1
+
+- name: stat report file domains data
+  stat:
+    path: "{{ fFileDomainsData }}"
+  register: statReportFileDomainsData
+  when: fDomainsData.result.status == 1
+
+- name: report file domains data
+  file:
+    path: "{{ fFileDomainsData }}"
+    owner: root
+    group: root
+    mode: 0600
+    state: '{{ "file" if statReportFileDomainsData.stat.exists else "touch" }}'
+  when: fDomainsData.result.status == 1
+
+- name: save file domains data
+  lineinfile:
+    path: "{{ fFileDomainsData }}"
+    line: "{{ fDomainsData | to_json }}"
+    state: present
+  when: fDomainsData.result.status == 1

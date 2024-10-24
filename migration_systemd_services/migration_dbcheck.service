@@ -1,0 +1,13 @@
+[Unit]
+Description=Migration Dbcheck Service
+After=network.target
+
+[Service]
+Environment=ANSIBLE_LOG_PATH=/opt/migration/logs/dbcheck/migration_dbcheck_ansible.log
+Type=simple
+ExecStart=/opt/migration/bin/pythonMigration /opt/migration/bin/migration_dbcheck.py
+StandardOutput=journal+console
+StandardError=inherit
+
+[Install]
+WantedBy=multi-user.target

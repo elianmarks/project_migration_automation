@@ -1,0 +1,13 @@
+[Unit]
+Description=Migration CPanel Service
+After=network.target
+
+[Service]
+Environment=ANSIBLE_LOG_PATH=/opt/migration/logs/cpanel/migration_cpanel_ansible.log
+Type=simple
+ExecStart=/opt/migration/bin/pythonMigration /opt/migration/bin/migration_cpanel.py
+StandardOutput=journal+console
+StandardError=inherit
+
+[Install]
+WantedBy=multi-user.target

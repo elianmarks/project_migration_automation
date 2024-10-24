@@ -1,0 +1,7 @@
+[Unit]
+Description=Migration Rsync Last Target
+Requires=migration_rsync_last@1.service migration_rsync_last@2.service migration_rsync_last@3.service
+After=network.target
+
+[Install]
+WantedBy=multi-user.target

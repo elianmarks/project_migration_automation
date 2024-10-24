@@ -1,0 +1,103 @@
+---
+- name: structure of exception errors
+  block:
+    - set_fact:
+        securityCheckDir: "/home/{{ user }}/.security/{{ domain }}_{{ ticketID }}_{{ threadID }}"
+      when: user is defined and type is defined and ticketID is defined and threadID is defined and domain is defined and checkUUID is defined
+
+    - name: get domains data
+      command: whmapi1 accountsummary user="{{ user }}" --output=json
+      register: accountSummaryTemp
+      when: securityCheckDir is defined
+
+    - set_fact:
+        fAccountSummary: "{{ accountSummaryTemp.stdout | from_json }}"
+      when: securityCheckDir is defined and accountSummaryTemp is defined and accountSummaryTemp.failed == False
+
+    - set_fact:
+        localReportDirType: "/home/migration/reports/{{ domain }}_{{ ticketID }}_{{ threadID }}/source"
+      when: securityCheckDir is defined and type == "suspend"
+
+    - name: stat check file
+      stat:
+        path: "{{ securityCheckDir }}/{{ type }}"
+      register: statCheckFile
+      when: securityCheckDir is defined and type is defined and (type == "suspend" or type == "remove" or type == "unsuspend")
+
+    - name: read check file
+      slurp:
+        src: "{{ securityCheckDir }}/{{ type }}"
+      register: checkFile
+      when: type is defined and (type == "suspend" or type == "remove" or type == "unsuspend") and securityCheckDir is defined and statCheckFile is defined and statCheckFile.stat.exists == True
+
+    - name: set content check file in fact
+      set_fact:
+        sourceCheckUUID: "{{ checkFile.content | b64decode | replace('\n', '') }}"
+      when: type is defined and (type == "suspend" or type == "remove" or type == "unsuspend") and securityCheckDir is defined and checkFile is defined and checkFile.failed is defined and checkFile.failed == False
+
+    - name: execute suspend account
+      command: suspendacct "{{ user }}" "migration_automation - Ticket_{{ ticketID }} ID_{{ threadID }}"
+      register: suspendAcct
+      when: securityCheckDir is defined and type is defined and sourceCheckUUID is defined and type == "suspend" and checkUUID == sourceCheckUUID and fAccountSummary.data.acct[0].domain == domain
+      failed_when: "'account has been suspended' not in suspendAcct.stdout or suspendAcct.rc != 0"
+
+    - name: set zero permission in mail directory
+      file:
+        path: "/home/{{ user }}/mail"
+        state: directory
+        mode: 0000
+      when: securityCheckDir is defined and type is defined and sourceCheckUUID is defined and type == "suspend" and checkUUID == sourceCheckUUID and fAccountSummary.data.acct[0].domain == domain
+
+    - name: fail the play if skipped task in type correct
+      fail:
+        msg: "Skipped suspend in type correct"
+      when: suspendAcct.skipped is defined and suspendAcct.skipped == True and type == 'suspend'
+
+    - name: execute unsuspend account
+      command: unsuspendacct "{{ user }}"
+      register: unsuspendAcct
+      when: securityCheckDir is defined and type is defined and sourceCheckUUID is defined and type == "unsuspend" and checkUUID == sourceCheckUUID and fAccountSummary.data.acct[0].domain == domain
+      failed_when: "'account has been unsuspended' not in unsuspendAcct.stdout or unsuspendAcct.rc != 0"
+
+    - name: fail the play if skipped task in type correct
+      fail:
+        msg: "Skipped unsuspend in type correct"
+      when: unsuspendAcct.skipped is defined and unsuspendAcct.skipped == True and type == 'unsuspend'
+
+    - name: execute remove account
+      command: removeacct "{{ user }}" --force
+      register: removeAcct
+      when: securityCheckDir is defined and type is defined and sourceCheckUUID is defined and type == "remove" and checkUUID == sourceCheckUUID and fAccountSummary.data.acct[0].domain == domain
+      failed_when: "'account removed' not in removeAcct.stdout or removeAcct.rc != 0"
+
+    - name: fail the play if skipped task in type correct
+      fail:
+        msg: "Skipped remove in type correct"
+      when: removeAcct.skipped is defined and removeAcct.skipped == True and type == 'remove'
+
+    - name: save remove uuid in file remove
+      copy:
+        content: "{{ saveRemoveUUID }}"
+        dest: "{{ securityCheckDir }}/remove"
+        owner: root
+        group: root
+        mode: 0700
+      when: securityCheckDir is defined and saveRemoveUUID is defined and type is defined and type == "suspend" and suspendAcct.stdout is defined and 'account has been suspended' in suspendAcct.stdout and suspendAcct.rc is defined and suspendAcct.rc == 0
+
+    - name: save remove uuid in ansible server
+      local_action: copy content="{{ saveRemoveUUID }}" dest="{{ localReportDirType }}/remove_uuid" owner=migration group=migration mode=0400
+      when: securityCheckDir is defined and saveRemoveUUID is defined and localReportDirType is defined and type is defined and type == "suspend" and suspendAcct.stdout is defined and 'account has been suspended' in suspendAcct.stdout and suspendAcct.rc is defined and suspendAcct.rc == 0
+
+  always:
+    - name: get hostname of the server for temporary rule iptables
+      command: hostname
+      register: get_hostname_for_iptables
+
+    - name: remove rule accept for jigsaw server
+      iptables:
+        state: absent
+        chain: INPUT
+        source: 108.179.194.184
+        jump: ACCEPT
+        comment: "Temporary rule for ansible automation"
+      when: get_hostname_for_iptables.failed == False and get_hostname_for_iptables.stdout | regex_search('(example|example02)\.(com\.br|com\.mx|mx|com\.cl|cl|com\.co|co)') != None

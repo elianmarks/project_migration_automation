@@ -1,0 +1,231 @@
+---
+- name: structure of exception errors
+  block:
+    - set_fact:
+        fTransfer: /home/transfer
+        localReportDir: "/home/migration/reports/{{ domain }}_{{ ticketID }}_{{ threadID }}"
+        localReportDirType: "/home/migration/reports/{{ domain }}_{{ ticketID }}_{{ threadID }}/{{ type }}"
+      when: domain is defined
+
+    - name: report directory local
+      local_action: file path="{{ localReportDir }}" state=directory owner=migration group=migration mode=0600
+      when: localReportDir is defined
+
+    - name: report directory local
+      local_action: file path="{{ localReportDirType }}" state=directory owner=migration group=migration mode=0600
+      when: localReportDir is defined
+
+    - set_fact:
+        fReportDirectory: "{{ fTransfer }}/.migration_{{ domain }}_{{ ticketID }}_{{ threadID }}"
+      when: fTransfer is defined and localReportDir is defined
+
+    - name: stat transfer directory
+      stat:
+        path: "{{ fTransfer }}"
+      register: statTransfer
+      when: fTransfer is defined
+
+    - name: transfer directory
+      file:
+        path: "{{ fTransfer }}"
+        state: directory
+        owner: root
+        group: root
+        mode: 0700
+      when: statTransfer is defined and statTransfer.stat.exists != True
+
+    - name: report directory
+      file:
+        path: "{{ fReportDirectory }}"
+        state: directory
+        owner: root
+        group: root
+        mode: 0700
+      when: fTransfer is defined
+
+    - name: tasks whmapi1 domainuserdata
+      import_tasks: domain_userdata.yaml
+      when: type is defined and (type == "source" or type == "destination_end") and domain is defined
+
+    - name: tasks whmapi1 accountsummary
+      import_tasks: account_summary.yaml
+      when: type is defined and (type == "source" or type == "destination_end") and domain is defined
+
+    - name: tasks whmapi1 list_mysql_databases
+      import_tasks: mysql_databases.yaml
+      when: type is defined and (type == "source" or type == "destination_end") and domain is defined
+
+    - name: tasks uapi list_domains
+      import_tasks: list_domains.yaml
+      when: type is defined and (type == "source" or type == "destination_end") and domain is defined
+
+    - name: tasks uapi domains data
+      import_tasks: domains_data.yaml
+      when: type is defined and (type == "source" or type == "destination_end") and domain is defined
+
+    - name: tasks uapi email account disk
+      import_tasks: email_account_disk.yaml
+      when: type is defined and (type == "source" or type == "destination_end") and domain is defined
+
+    - name: tasks uapi list pops disk
+      import_tasks: email_list_pops_disk.yaml
+      when: type is defined and (type == "source" or type == "destination_end") and domain is defined
+
+    - name: tasks handle htaccess in home
+      import_tasks: handle_htaccess.yaml
+      when: type is defined and type == "destination_end" and domain is defined
+
+    - name: tasks whmapi1 mysql server version
+      import_tasks: mysql_server_version.yaml
+      when: type is defined and (type == "source" or type == "destination" or type == "destination_end") and domain is defined
+
+    - name: tasks whmapi1 php installed versions
+      import_tasks: php_installed_versions.yaml
+      when: type is defined and (type == "source" or type == "destination" or type == "destination_end") and domain is defined
+
+    - name: tasks whmapi1 list accts user
+      import_tasks: list_accts_user.yaml
+      when: type is defined and (type == "source" or type == "destination") and domain is defined
+
+    - name: tasks php info in each domain
+      import_tasks: php_info_get.yaml
+      when: type is defined and (type == "source" or type == "destination_end") and domain is defined
+
+    - name: upload report file account summary
+      fetch:
+        src: "{{ fFileAccountSummary }}"
+        dest: "{{ localReportDirType }}/accountSummary.json"
+        flat: yes
+      when: type is defined and (type == "source" or type == "destination_end") and domain is defined
+
+    - name: upload report file domain user data
+      fetch:
+        src: "{{ fFileDomainUserData }}"
+        dest: "{{ localReportDirType }}/domainUserData.json"
+        flat: yes
+      when: type is defined and (type == "source" or type == "destination_end") and domain is defined
+
+    - name: upload report file domains data
+      fetch:
+        src: "{{ fFileDomainsData }}"
+        dest: "{{ localReportDirType }}/domainsData.json"
+        flat: yes
+      when: type is defined and (type == "source" or type == "destination_end") and domain is defined
+
+    - name: upload report file email account disk
+      fetch:
+        src: "{{ fFileEmailAccountDisk }}"
+        dest: "{{ localReportDirType }}/emailAccountDisk.json"
+        flat: yes
+      when: type is defined and (type == "source" or type == "destination_end") and domain is defined
+
+    - name: upload report file email list pops disk
+      fetch:
+        src: "{{ fFileEmailListPopsDisk }}"
+        dest: "{{ localReportDirType }}/listPopsDisk.json"
+        flat: yes
+      when: type is defined and (type == "source" or type == "destination_end") and domain is defined
+
+    - name: upload report file list domains
+      fetch:
+        src: "{{ fFileListDomains }}"
+        dest: "{{ localReportDirType }}/listDomains.json"
+        flat: yes
+      when: type is defined and (type == "source" or type == "destination_end") and domain is defined
+
+    - name: upload report file mysql databases
+      fetch:
+        src: "{{ fFileMysqlDatabases }}"
+        dest: "{{ localReportDirType }}/mysqlDatabases.json"
+        flat: yes
+      when: type is defined and (type == "source" or type == "destination_end") and domain is defined
+
+    - name: upload report file mysql server version
+      fetch:
+        src: "{{ fFileMysqlServerVersion }}"
+        dest: "{{ localReportDirType }}/mysqlServerVersion.json"
+        flat: yes
+      when: type is defined and (type == "source" or type == "destination" or type == "destination_end") and domain is defined
+
+    - name: upload report file php installed versions
+      fetch:
+        src: "{{ fFilePHPInstalledVersions }}"
+        dest: "{{ localReportDirType }}/phpInstalledVersions.json"
+        flat: yes
+      when: type is defined and (type == "source" or type == "destination" or type == "destination_end") and domain is defined and fFilePHPInstalledVersions is defined
+
+    - name: upload report file list accts user
+      fetch:
+        src: "{{ fFileListAcctsUser }}"
+        dest: "{{ localReportDirType }}/listAcctsUser.json"
+        flat: yes
+      when: type is defined and type == "source" and domain is defined
+
+    - name: get hostname of the server
+      command: hostname
+      register: get_hostname
+      when: type is defined and (type == "source" or type == "destination_end") and domain is defined
+
+    - name: save file with hostname
+      local_action: copy content="{{ get_hostname.stdout }}" dest="{{ localReportDirType }}/hostname" owner=migration group=migration mode=0600
+      when: type is defined and (type == "source" or type == "destination_end") and get_hostname.failed == False and domain is defined
+
+    - name: get all destination ips
+      shell: 'ip -4 addr | grep "scope global" | grep -oP "(?<=inet\s)\d+(\.\d+){3}"'
+      register: all_destination_ips
+      when: type is defined and type == "destination_end" and domain is defined
+
+    - name: save ips
+      local_action: lineinfile line="{{ item }}" path="{{ localReportDirType }}/ips" state=present create=yes
+      with_items:
+        - "{{ all_destination_ips.stdout_lines }}"
+      when: type is defined and type == "destination_end" and domain is defined and all_destination_ips is defined and all_destination_ips.failed is defined and all_destination_ips.failed == False
+
+    - name: tasks reseller accounts
+      import_tasks: reseller_accounts.yaml
+      when: type is defined and (type == "source" or type == "destination_end") and src_type == "reseller" and domain is defined and fAccountSummary.data.acct[0].owner == fAccountSummary.data.acct[0].user
+
+    - name: tasks reseller accounts data
+      import_tasks: reseller_accounts_data.yaml
+      when: type is defined and (type == "source" or type == "destination_end") and src_type == "reseller" and domain is defined and fAccountSummary.data.acct[0].owner == fAccountSummary.data.acct[0].user
+
+    - name: tasks reseller ips
+      import_tasks: reseller_ips.yaml
+      when: type is defined and (type == "source" or type == "destination_end") and src_type == "reseller" and domain is defined and fAccountSummary.data.acct[0].owner == fAccountSummary.data.acct[0].user
+
+    - name: tasks list accts source
+      import_tasks: list_accts.yaml
+      when: type is defined and type == "source" and (src_type == "vps" or src_type =="dedi") and domain is defined and get_hostname.failed == False and get_hostname.stdout | regex_search('(example|example02)\.(com\.br|com\.mx|mx|com\.cl|cl|com\.co|co)') == None
+
+    - name: tasks list accts destination
+      import_tasks: list_accts.yaml
+      when: type is defined and type == "destination_end" and (dst_type == "vps" or dst_type =="dedi") and domain is defined and get_hostname.failed == False and get_hostname.stdout | regex_search('(example|example02)\.(com\.br|com\.mx|mx|com\.cl|cl|com\.co|co)') == None
+
+    - name: tasks list accts domain vps or dedi destination
+      import_tasks: list_accts_domain.yaml
+      when: type is defined and type == "destination" and domain is defined
+      
+  always:
+    - name: remove migration report in home directory
+      file:
+        path: "{{ fReportDirectory }}"
+        state: absent
+      when: fReportDirectory is defined
+
+    - name: remove migration report in transfer directory
+      file:
+        path: "{{ fReportDirectory }}"
+        state: absent
+
+    - name: get hostname of the server for temporary rule iptables
+      command: hostname
+      register: get_hostname_for_iptables
+
+    - name: remove rule accept for jigsaw server
+      iptables:
+        state: absent
+        chain: INPUT
+        source: 108.179.194.184
+        jump: ACCEPT
+        comment: "Temporary rule for ansible automation"
+      when: get_hostname_for_iptables.failed == False and get_hostname_for_iptables.stdout | regex_search('(example|example02)\.(com\.br|com\.mx|mx|com\.cl|cl|com\.co|co)') != None

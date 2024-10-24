@@ -1,0 +1,12 @@
+[Unit]
+Description=Migration Compare Service
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/opt/migration/bin/pythonMigration /opt/migration/bin/migration_compare.py
+StandardOutput=journal+console
+StandardError=inherit
+
+[Install]
+WantedBy=multi-user.target

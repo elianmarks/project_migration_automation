@@ -1,0 +1,34 @@
+---
+- name: mysql server version
+  command: whmapi1 current_mysql_version --output=json
+  register: mysqlServerVersionTemp
+
+- set_fact:
+    fMysqlServerVersion: "{{ mysqlServerVersionTemp.stdout | from_json }}"
+  when: mysqlServerVersionTemp.failed == False
+
+- set_fact:
+    fFileMysqlServerVersion: "{{ fReportDirectory }}/mysqlServerVersion_{{ domain }}_{{ ticketID }}_{{ threadID }}.json"
+  when: fMysqlServerVersion.metadata.result != 0
+
+- name: stat report file mysql ServerVersion
+  stat:
+    path: "{{ fFileMysqlServerVersion }}"
+  register: statReportFileMysqlServerVersion
+  when: fMysqlServerVersion.metadata.result != 0
+
+- name: report file mysql ServerVersion
+  file:
+    path: "{{ fFileMysqlServerVersion }}"
+    owner: root
+    group: root
+    mode: 0600
+    state: '{{ "file" if statReportFileMysqlServerVersion.stat.exists else "touch" }}'
+  when: fMysqlServerVersion.metadata.result != 0
+
+- name: save file mysql ServerVersion
+  lineinfile:
+    path: "{{ fFileMysqlServerVersion }}"
+    line: "{{ fMysqlServerVersion | to_json }}"
+    state: present
+  when: fMysqlServerVersion.metadata.result != 0

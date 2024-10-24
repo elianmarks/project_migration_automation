@@ -1,0 +1,180 @@
+---
+- set_fact:
+    fReportDirectory: "{{ fDomainUserData.data.userdata.homedir }}/.migration_{{ domain }}_{{ ticketID }}_{{ threadID }}"
+  when: fDomainUserData.metadata.result != 0
+
+- name: report directory
+  file:
+    path: "{{ fReportDirectory }}"
+    state: directory
+    owner: "{{ fDomainUserData.data.userdata.user }}"
+    group: "{{ fDomainUserData.data.userdata.user }}"
+    mode: 0700
+  when: fDomainUserData.metadata.result != 0
+
+- name: add migration-info.php in addon_domains
+  template:
+    src: php_info.j2
+    dest: "{{ item.documentroot }}/migration-info.php"
+    mode: 0644
+    owner: "{{ item.user }}"
+    group: "{{ item.group }}"
+  with_items:
+    - "{{ fDomainsData.result.data.addon_domains }}"
+  when: fDomainsData.result.status == 1 and fDomainsData.result.data.addon_domains != "[]" and fDomainsData.result.data.addon_domains | length > 0
+  register: templatePhpAddon
+  ignore_errors: yes
+
+- name: get migration-info.php in addons_domains
+  uri:
+    url: "http://{{ item.ip }}/migration-info.php"
+    method: GET
+    status_code: 200, 404
+    headers:
+      Host: "{{ item.domain }}"
+    validate_certs: no
+  with_items:
+    - "{{ fDomainsData.result.data.addon_domains }}"
+  ignore_errors: yes
+  register: getPhpAddon
+
+- name: upload report files php info addon_domains
+  fetch:
+    src: "{{ fReportDirectory }}/{{ item.domain }}_{{ ticketID }}_{{ threadID }}.json"
+    dest: "{{ localReportDir }}/{{ type }}/{{ item.domain }}.json"
+    flat: yes
+    fail_on_missing: no
+  with_items:
+    - "{{ fDomainsData.result.data.addon_domains }}"
+  ignore_errors: yes
+
+- name: remove php info addon_domains
+  file:
+    path: "{{ item.documentroot }}/migration-info.php"
+    state: absent
+  with_items:
+    - "{{ fDomainsData.result.data.addon_domains }}"
+  ignore_errors: yes
+
+- name: add migration-info.php in sub_domains
+  template:
+    src: php_info.j2
+    dest: "{{ item.documentroot }}/migration-info.php"
+    mode: 0644
+    owner: "{{ item.user }}"
+    group: "{{ item.group }}"
+  with_items:
+    - "{{ fDomainsData.result.data.sub_domains }}"
+  when: fDomainsData.result.status == 1 and fDomainsData.result.data.sub_domains != "[]" and fDomainsData.result.data.sub_domains | length > 0
+  register: templatePhpSub
+  ignore_errors: yes
+
+- name: get migration-info.php in sub_domains
+  uri:
+    url: "http://{{ item.ip }}/migration-info.php"
+    method: GET
+    status_code: 200, 404
+    headers:
+      Host: "{{ item.domain }}"
+    validate_certs: no
+  with_items:
+    - "{{ fDomainsData.result.data.sub_domains }}"
+  ignore_errors: yes
+  register: getPhpSub
+
+- name: upload report files php info sub_domains
+  fetch:
+    src: "{{ fReportDirectory }}/{{ item.domain }}_{{ ticketID }}_{{ threadID }}.json"
+    dest: "{{ localReportDir }}/{{ type }}/{{ item.domain }}.json"
+    flat: yes
+    fail_on_missing: no
+  with_items:
+    - "{{ fDomainsData.result.data.sub_domains }}"
+  ignore_errors: yes
+
+- name: remove php info sub_domains
+  file:
+    path: "{{ item.documentroot }}/migration-info.php"
+    state: absent
+  with_items:
+    - "{{ fDomainsData.result.data.sub_domains }}"
+  ignore_errors: yes
+
+- name: add migration-info.php in parked_domains
+  template:
+    src: php_info.j2
+    dest: "{{ item.documentroot }}/migration-info.php"
+    mode: 0644
+    owner: "{{ item.user }}"
+    group: "{{ item.group }}"
+  with_items:
+    - "{{ fDomainsData.result.data.parked_domains }}"
+  when: fDomainsData.result.status == 1 and fDomainsData.result.data.parked_domains != "[]" and fDomainsData.result.data.parked_domains | length > 0
+  register: templatePhpParked
+  ignore_errors: yes
+
+- name: get migration-info.php in parked_domains
+  uri:
+    url: "http://{{ item.ip }}/migration-info.php"
+    method: GET
+    status_code: 200, 404
+    headers:
+      Host: "{{ item.domain }}"
+    validate_certs: no
+  with_items:
+    - "{{ fDomainsData.result.data.parked_domains }}"
+  ignore_errors: yes
+  register: getPhpParked
+
+- name: remove php info parked_domains
+  file:
+    path: "{{ item.documentroot }}/migration-info.php"
+    state: absent
+  with_items:
+    - "{{ fDomainsData.result.data.parked_domains }}"
+  ignore_errors: yes
+
+- name: upload report files php info parked_domains
+  fetch:
+    src: "{{ fReportDirectory }}/{{ item.domain }}_{{ ticketID }}_{{ threadID }}.json"
+    dest: "{{ localReportDir }}/{{ type }}/{{ item.domain }}.json"
+    flat: yes
+    fail_on_missing: no
+  with_items:
+    - "{{ fDomainsData.result.data.parked_domains }}"
+  ignore_errors: yes
+
+- name: add migration-info.php in main_domain
+  template:
+    src: php_info_main.j2
+    dest: "{{ fDomainsData.result.data.main_domain.documentroot }}/migration-info.php"
+    mode: 0644
+    owner: "{{ fDomainsData.result.data.main_domain.user }}"
+    group: "{{ fDomainsData.result.data.main_domain.group }}"
+  when: fDomainsData.result.status == 1 and fDomainsData.result.data.main_domain is defined
+  register: templatePhpMain
+  ignore_errors: yes
+
+- name: get migration-info.php in main_domain
+  uri:
+    url: "http://{{ fDomainsData.result.data.main_domain.ip }}/migration-info.php"
+    method: GET
+    status_code: 200, 404
+    headers:
+      Host: "{{ fDomainsData.result.data.main_domain.domain }}"
+    validate_certs: no
+  ignore_errors: yes
+  register: getPhpMain
+
+- name: upload report files php info main_domain
+  fetch:
+    src: "{{ fReportDirectory }}/{{ fDomainsData.result.data.main_domain.domain }}_{{ ticketID }}_{{ threadID }}.json"
+    dest: "{{ localReportDir }}/{{ type }}/{{ fDomainsData.result.data.main_domain.domain }}.json"
+    flat: yes
+    fail_on_missing: no
+  ignore_errors: yes
+
+- name: remove php info main
+  file:
+    path: "{{ fDomainsData.result.data.main_domain.documentroot }}/migration-info.php"
+    state: absent

@@ -1,0 +1,48 @@
+---
+- name: list accts user with user set
+  command: whmapi1 listaccts search="^{{ fDomainUserData.data.userdata.user }}$" searchtype=user --output=json
+  register: listAcctsUserTemp
+  when: user is not defined
+
+- name: list accts user
+  command: whmapi1 listaccts search="^{{ user }}$" searchtype=user --output=json
+  register: listAcctsUserDestTemp
+  when: user is defined
+
+- set_fact:
+    fListAcctsUser: "{{ listAcctsUserTemp.stdout | from_json }}"
+  when: type == "source" and listAcctsUserTemp.failed == False
+
+- set_fact:
+    fListAcctsUserDest: "{{ listAcctsUserDestTemp.stdout | from_json }}"
+  when: type == "destination" and listAcctsUserDestTemp.failed == False
+
+- set_fact:
+    fFileListAcctsUser: "{{ fReportDirectory }}/listAcctsUser_{{ domain }}_{{ ticketID }}_{{ threadID }}.json"
+  when: type == "source" and fListAcctsUser.metadata.result != 0
+
+- name: stat report file list accts user
+  stat:
+    path: "{{ fFileListAcctsUser }}"
+  register: statReportFilelistAcctsUser
+  when: type == "source" and fListAcctsUser.metadata.result != 0
+
+- name: report file list accts user
+  file:
+    path: "{{ fFileListAcctsUser }}"
+    owner: root
+    group: root
+    mode: 0600
+    state: '{{ "file" if statReportFilelistAcctsUser.stat.exists else "touch" }}'
+  when: type == "source" and fListAcctsUser.metadata.result != 0
+
+- name: check user in destination
+  local_action: file path="{{ localReportDirType }}/user_available.flag" state=touch
+  when: fListAcctsUserDest.data is not defined and type == "destination"
+
+- name: save file list accts user
+  lineinfile:
+    path: "{{ fFileListAcctsUser }}"
+    line: "{{ fListAcctsUser | to_json }}"
+    state: present
+  when: type == "source" and fListAcctsUser.metadata.result != 0

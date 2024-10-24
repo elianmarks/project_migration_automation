@@ -1,0 +1,13 @@
+[Unit]
+Description=Migration Handle PHP Service
+After=network.target
+
+[Service]
+Environment=ANSIBLE_LOG_PATH=/opt/migration/logs/handle_php/migration_handle_php_ansible.log
+Type=simple
+ExecStart=/opt/migration/bin/pythonMigration /opt/migration/bin/migration_handle_php.py
+StandardOutput=journal+console
+StandardError=inherit
+
+[Install]
+WantedBy=multi-user.target
